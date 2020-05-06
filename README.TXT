@@ -1,0 +1,1 @@
+szablon do pisania kodu na projekt
