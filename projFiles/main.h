@@ -19,10 +19,25 @@
 
 typedef struct
 {
-    int timestamp; //Lamport clock
-    int priority;
-    int type;
+  int senderId;
+  int timestamp; //Lamport clock
+  int priority;
+  int type;
+  int data;
 } Message;
+
+typedef struct
+{
+  int **queue;
+  int capacity;
+  int isOnACruise;
+} Boat;
+
+typedef struct
+{
+  int **queue;
+  int availableCostumes;
+} CostumesPool;
 
 /* Typy wiadomości - STRÓJ */
 
@@ -63,9 +78,10 @@ void createMessageType();
 /**
   * Tworzenie łodzi i losowanie ich pojemności
 **/
-void initBoats(int tId, int size, int boatsCount /*, struct Boat *boats*/);
+void initBoats(int tId, int size, int boatsCount);
 
 /**
  * Czysczenie zasobow, czekanie na zakończenie innych watkow
 **/
 void cleanUp();
+#endif
