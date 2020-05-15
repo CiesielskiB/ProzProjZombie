@@ -1,4 +1,6 @@
 #include "main.h"
+#include "communicationThread.h"
+#include "mainThread.h"
 
 MPI_Datatype MPI_Msg;
 
@@ -8,9 +10,15 @@ int COSTUMES_COUNT;
 Boat *boats;
 CostumesPool *costumesPool;
 
+pthread_t commThread;
+
 int main(int argc, char **argv)
 {
     initMPI(&argc, &argv);
+
+    pthread_create(&commThread, NULL, communicationThreadLoop, 0);
+    mainThreadLoop();
+
     cleanUp();
     return 0;
 }
@@ -123,6 +131,7 @@ void cleanUp()
     //if (rank==0) pthread_join(threadMon,NULL);
     MPI_Type_free(&MPI_Msg);
     MPI_Finalize();
+
     free(boats);
     free(costumesPool);
 }
