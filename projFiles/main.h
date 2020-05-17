@@ -20,11 +20,11 @@
 #define BOAT_CAPACITY_MIN 10
 #define BOAT_CAPACITY_MAX 20
 
-#define MIN_NUMBER_OF_COSTUMES 2
-#define MAX_NUMBER_OF_COSTUMES 5 //no more than the number of running processes
+#define MIN_NUMBER_OF_COSTUMES 3
+#define MAX_NUMBER_OF_COSTUMES 6 //no more than the number of running processes
 
-#define PROCESS_MIN_CAPACITY 3
-#define PROCESS_MAX_CAPACITY 8
+#define PASSENGER_MIN_WEIGHT 2
+#define PASSENGER_MAX_WEIGHT 8
 
 typedef struct
 {
@@ -87,12 +87,17 @@ void createMessageType();
 /**
   * Tworzenie łodzi i losowanie ich pojemności
 **/
-void initBoats(int tId, int size, int boatsCount);
+void initBoats(int tId, int size);
 
 /**
   * Losowanie ilości dostępnych kostiumow
 **/
-void initCostumes(int tId, int size, int boatsCount);
+void initCostumes(int tId, int size);
+
+/**
+ * Losowanie pojemności zajmowanej przez pasazera na łodzi
+**/
+void generatePassengerWeight(int tId);
 
 /**
  * Czysczenie zasobow, czekanie na zakończenie innych watkow

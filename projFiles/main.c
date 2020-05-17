@@ -7,6 +7,11 @@ MPI_Datatype MPI_Msg;
 int BOATS_COUNT;
 int COSTUMES_COUNT;
 
+/**
+ * The capacity that a passenger occupies on a boat
+**/
+int weight;
+
 Boat *boats;
 CostumesPool *costumesPool;
 
@@ -41,8 +46,9 @@ void initMPI(int *argc, char ***argv)
     MPI_Comm_rank(MPI_COMM_WORLD, &tId);
 
     createMessageType();
-    initBoats(tId, size, BOATS_COUNT);
-    initCostumes(tId, size, COSTUMES_COUNT);
+    initBoats(tId, size);
+    initCostumes(tId, size);
+    generatePassengerWeight(tId);
 }
 
 void createMessageType()
@@ -62,7 +68,7 @@ void createMessageType()
     MPI_Type_commit(&MPI_Msg);
 }
 
-void initBoats(int tId, int size, int count)
+void initBoats(int tId, int size)
 {
     srand(time(NULL));
     if (tId == ROOT)
@@ -70,16 +76,17 @@ void initBoats(int tId, int size, int count)
 
     boats = (Boat *)malloc(sizeof(Boat) * BOATS_COUNT);
 
-    for (int i = 0; i < count; i++)
+    for (int i = 0; i < BOATS_COUNT; i++)
     {
         boats[i].queue = (int **)malloc(sizeof(int *) * size);
         boats[i].isOnACruise = FALSE;
         boats[i].capacity = -1;
         for (int j = 0; j < size; j++)
         {
-            boats[i].queue[j] = (int *)malloc(sizeof(int) * 2);
+            boats[i].queue[j] = (int *)malloc(sizeof(int) * 3);
             boats[i].queue[j][0] = -1; //process id
             boats[i].queue[j][1] = -1; //timestamp
+            boats[i].queue[j][2] = -1; //process weight (occupied capacity)
         }
         int randBoatCapacity = -1;
         if (tId == ROOT)
@@ -93,7 +100,7 @@ void initBoats(int tId, int size, int count)
     MPI_Barrier(MPI_COMM_WORLD);
 }
 
-void initCostumes(int tId, int size, int count)
+void initCostumes(int tId, int size)
 {
     srand(time(NULL));
     if (tId == ROOT)
@@ -112,12 +119,21 @@ void initCostumes(int tId, int size, int count)
     int randNumberOfCostumes = -1;
     if (tId == ROOT)
     {
-        int maxCostumes = MAX_NUMBER_OF_COSTUMES > size ? size : MAX_NUMBER_OF_COSTUMES;
+        int maxCostumes = MAX_NUMBER_OF_COSTUMES > size ? size/2 : MAX_NUMBER_OF_COSTUMES;
         randNumberOfCostumes = (rand() % (maxCostumes - MIN_NUMBER_OF_COSTUMES) + MIN_NUMBER_OF_COSTUMES);
         printf("Number of available costumes: %d \n", randNumberOfCostumes);
     }
     MPI_Bcast(&randNumberOfCostumes, 1, MPI_INT, ROOT, MPI_COMM_WORLD);
     costumesPool->availableCostumes = randNumberOfCostumes;
+
+    MPI_Barrier(MPI_COMM_WORLD);
+}
+
+void generatePassengerWeight(int tId)
+{
+    srand(tId);
+    weight = (rand() % (PASSENGER_MAX_WEIGHT - PASSENGER_MIN_WEIGHT) + PASSENGER_MIN_WEIGHT);
+    printf("Generated weight for passenger %d: %d\n", tId, weight);
 
     MPI_Barrier(MPI_COMM_WORLD);
 }
