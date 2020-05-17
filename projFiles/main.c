@@ -4,18 +4,19 @@
 
 MPI_Datatype MPI_Msg;
 
-int BOATS_COUNT;
-int COSTUMES_COUNT;
-
-/**
- * The capacity that a passenger occupies on a boat
-**/
-int weight;
-
 Boat *boats;
 CostumesPool *costumesPool;
 
+int BOATS_COUNT;
+int COSTUMES_COUNT;
+
+int weight;
+int tId;
+int size;
+int state;
+
 pthread_t commThread;
+pthread_mutex_t mutexState = PTHREAD_MUTEX_INITIALIZER;
 
 int main(int argc, char **argv)
 {
@@ -33,7 +34,7 @@ void initMPI(int *argc, char ***argv)
     BOATS_COUNT = 5;    //TODO
     COSTUMES_COUNT = 3; //TODO
 
-    int size, tId, provided;
+    int provided;
     MPI_Init_thread(argc, argv, MPI_THREAD_MULTIPLE, &provided);
 
     if (provided == MPI_THREAD_SINGLE)
@@ -119,7 +120,7 @@ void initCostumes(int tId, int size)
     int randNumberOfCostumes = -1;
     if (tId == ROOT)
     {
-        int maxCostumes = MAX_NUMBER_OF_COSTUMES > size ? size/2 : MAX_NUMBER_OF_COSTUMES;
+        int maxCostumes = MAX_NUMBER_OF_COSTUMES > size ? size / 2 : MAX_NUMBER_OF_COSTUMES;
         randNumberOfCostumes = (rand() % (maxCostumes - MIN_NUMBER_OF_COSTUMES) + MIN_NUMBER_OF_COSTUMES);
         printf("Number of available costumes: %d \n", randNumberOfCostumes);
     }
@@ -138,13 +139,23 @@ void generatePassengerWeight(int tId)
     MPI_Barrier(MPI_COMM_WORLD);
 }
 
+void changeState(int newState)
+{
+    pthread_mutex_lock(&mutexState);
+    if (state == STATE_FINISH)
+    {
+        pthread_mutex_unlock(&mutexState);
+        return;
+    }
+    state = newState;
+    pthread_mutex_unlock(&mutexState);
+}
+
 void cleanUp()
 {
-    //pthread_mutex_destroy(&stateMut);
-    /* Czekamy, aż wątek potomny się zakończy */
-    printf("Ending... \n");
-    //pthread_join(threadKom,NULL);
-    //if (rank==0) pthread_join(threadMon,NULL);
+    pthread_mutex_destroy(&mutexState);
+    pthread_join(commThread, NULL);
+
     MPI_Type_free(&MPI_Msg);
     MPI_Finalize();
 
