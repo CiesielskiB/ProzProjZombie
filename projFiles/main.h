@@ -61,7 +61,8 @@ typedef struct
   int timestamp; //Lamport clock
   int priority;
   int type;
-  int data;
+  int boatId;
+  int senderWeight;
 } Message;
 
 typedef struct
@@ -135,6 +136,16 @@ pthread_t commThread;
 pthread_mutex_t mutexState;
 
 /**
+ * Mutex protecting boat related operations
+**/
+pthread_mutex_t mutexBoats;
+
+/**
+ * Mutex protecting costume related operations
+**/
+pthread_mutex_t mutexCostumes;
+
+/**
  * Initializing the MPI environment
 **/
 void initMPI();
@@ -163,6 +174,11 @@ void generatePassengerWeight(int tId);
  * Changing the state of a process
 **/
 void changeState();
+
+/**
+ * Sending a message to another process
+**/
+void sendMessage(Message *message, int destination, int tag);
 
 /**
  * Cleaning used resources

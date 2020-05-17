@@ -17,6 +17,8 @@ int state;
 
 pthread_t commThread;
 pthread_mutex_t mutexState = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutexBoats = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutexCostumes = PTHREAD_MUTEX_INITIALIZER;
 
 int main(int argc, char **argv)
 {
@@ -54,16 +56,17 @@ void initMPI(int *argc, char ***argv)
 
 void createMessageType()
 {
-    const int nItems = 5;
-    int blocklengths[5] = {1, 1, 1, 1, 1};
-    MPI_Datatype types[5] = {MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT};
+    const int nItems = 6;
+    int blocklengths[6] = {1, 1, 1, 1, 1, 1};
+    MPI_Datatype types[6] = {MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT};
 
-    MPI_Aint offsets[5];
+    MPI_Aint offsets[6];
     offsets[0] = offsetof(Message, senderId);
     offsets[1] = offsetof(Message, timestamp);
     offsets[2] = offsetof(Message, priority);
     offsets[3] = offsetof(Message, type);
-    offsets[4] = offsetof(Message, data);
+    offsets[4] = offsetof(Message, boatId);
+    offsets[5] = offsetof(Message, senderWeight);
 
     MPI_Type_create_struct(nItems, blocklengths, offsets, types, &MPI_Msg);
     MPI_Type_commit(&MPI_Msg);
@@ -149,6 +152,21 @@ void changeState(int newState)
     }
     state = newState;
     pthread_mutex_unlock(&mutexState);
+}
+
+void sendMessage(Message *message, int destination, int tag)
+{
+    int shouldMemoryBeFreed = FALSE;
+    if (message == 0)
+    {
+        message = malloc(sizeof(Message));
+        shouldMemoryBeFreed = TRUE;
+    }
+
+    MPI_Send(message, 1, MPI_Msg, destination, tag, MPI_COMM_WORLD);
+
+    if (shouldMemoryBeFreed)
+        free(message);
 }
 
 void cleanUp()
