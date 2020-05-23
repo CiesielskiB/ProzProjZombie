@@ -1,139 +1,188 @@
 #include "main.h"
-#include "watek_komunikacyjny.h"
-#include "watek_glowny.h"
-#include "monitor.h"
-/* wątki */
-#include <pthread.h>
+#include "communicationThread.h"
+#include "mainThread.h"
+#include "functions.h"
 
-/* sem_init sem_destroy sem_post sem_wait */
-//#include <semaphore.h>
-/* flagi dla open */
-//#include <fcntl.h>
+MPI_Datatype MPI_Msg;
 
-state_t stan=InRun;
-volatile char end = FALSE;
-int size,rank, tallow; /* nie trzeba zerować, bo zmienna globalna statyczna */
-MPI_Datatype MPI_PAKIET_T;
-pthread_t threadKom, threadMon;
+int clockValue;
 
-pthread_mutex_t stateMut = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t tallowMut = PTHREAD_MUTEX_INITIALIZER;
+Boat *boats;
+CostumesPool *costumesPool;
 
-void check_thread_support(int provided)
-{
-    printf("THREAD SUPPORT: %d\n", provided);
-    switch (provided) {
-        case MPI_THREAD_SINGLE: 
-            printf("Brak wsparcia dla wątków, kończę\n");
-            /* Nie ma co, trzeba wychodzić */
-	    fprintf(stderr, "Brak wystarczającego wsparcia dla wątków - wychodzę!\n");
-	    MPI_Finalize();
-	    exit(-1);
-	    break;
-        case MPI_THREAD_FUNNELED: 
-            printf("tylko te wątki, ktore wykonaly mpi_init_thread mogą wykonać wołania do biblioteki mpi\n");
-	    break;
-        case MPI_THREAD_SERIALIZED: 
-            /* Potrzebne zamki wokół wywołań biblioteki MPI */
-            printf("tylko jeden watek naraz może wykonać wołania do biblioteki MPI\n");
-	    break;
-        case MPI_THREAD_MULTIPLE: printf("Pełne wsparcie dla wątków\n");
-	    break;
-        default: printf("Nikt nic nie wie\n");
-    }
-}
+int BOATS_COUNT;
+int COSTUMES_COUNT;
 
-/* srprawdza, czy są wątki, tworzy typ MPI_PAKIET_T
-*/
-void inicjuj(int *argc, char ***argv)
-{
-    int provided;
-    MPI_Init_thread(argc, argv,MPI_THREAD_MULTIPLE, &provided);
-    check_thread_support(provided);
+int weight;
+int tId;
+int size;
+int state;
 
+int numberOfReceivedCostumePermissions;
+int numberOfReceivedBoatPermissions;
 
-    /* Stworzenie typu */
-    /* Poniższe (aż do MPI_Type_commit) potrzebne tylko, jeżeli
-       brzydzimy się czymś w rodzaju MPI_Send(&typ, sizeof(pakiet_t), MPI_BYTE....
-    */
-    /* sklejone z stackoverflow */
-    const int nitems=3; /* bo packet_t ma trzy pola */
-    int       blocklengths[3] = {1,1,1};
-    MPI_Datatype typy[3] = {MPI_INT, MPI_INT, MPI_INT};
+pthread_t commThread;
 
-    MPI_Aint     offsets[3]; 
-    offsets[0] = offsetof(packet_t, ts);
-    offsets[1] = offsetof(packet_t, src);
-    offsets[2] = offsetof(packet_t, data);
+pthread_mutex_t mutexState = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutexBoats = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutexCostumes = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutexClock = PTHREAD_MUTEX_INITIALIZER;
 
-    MPI_Type_create_struct(nitems, blocklengths, offsets, typy, &MPI_PAKIET_T);
-    MPI_Type_commit(&MPI_PAKIET_T);
-
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
-    srand(rank);
-
-    pthread_create( &threadKom, NULL, startKomWatek , 0);
-    if (rank==0) {
-	pthread_create( &threadMon, NULL, startMonitor, 0);
-    }
-    debug("jestem");
-}
-
-/* usunięcie zamkków, czeka, aż zakończy się drugi wątek, zwalnia przydzielony typ MPI_PAKIET_T
-   wywoływane w funkcji main przed końcem
-*/
-void finalizuj()
-{
-    pthread_mutex_destroy( &stateMut);
-    /* Czekamy, aż wątek potomny się zakończy */
-    println("czekam na wątek \"komunikacyjny\"\n" );
-    pthread_join(threadKom,NULL);
-    if (rank==0) pthread_join(threadMon,NULL);
-    MPI_Type_free(&MPI_PAKIET_T);
-    MPI_Finalize();
-}
-
-
-void sendPacket(packet_t *pkt, int destination, int tag)
-{
-    int freepkt=0;
-    if (pkt==0) { pkt = malloc(sizeof(packet_t)); freepkt=1;}
-    pkt->src = rank;
-    MPI_Send( pkt, 1, MPI_PAKIET_T, destination, tag, MPI_COMM_WORLD);
-    if (freepkt) free(pkt);
-}
-
-void changeTallow( int newTallow )
-{
-    pthread_mutex_lock( &tallowMut );
-    if (stan==InFinish) { 
-	pthread_mutex_unlock( &tallowMut );
-        return;
-    }
-    tallow += newTallow;
-    pthread_mutex_unlock( &tallowMut );
-}
-
-void changeState( state_t newState )
-{
-    pthread_mutex_lock( &stateMut );
-    if (stan==InFinish) { 
-	pthread_mutex_unlock( &stateMut );
-        return;
-    }
-    stan = newState;
-    pthread_mutex_unlock( &stateMut );
-}
+pthread_cond_t condition_ACK_C = PTHREAD_COND_INITIALIZER;
+pthread_cond_t condition_ACK_B = PTHREAD_COND_INITIALIZER;
+pthread_cond_t condition_REL_C = PTHREAD_COND_INITIALIZER;
+pthread_cond_t condition_REL_B = PTHREAD_COND_INITIALIZER;
+pthread_cond_t condition_CRUISE = PTHREAD_COND_INITIALIZER;
 
 int main(int argc, char **argv)
 {
-    /* Tworzenie wątków, inicjalizacja itp */
-    inicjuj(&argc,&argv); // tworzy wątek komunikacyjny w "watek_komunikacyjny.c"
-    tallow = 1000; // by było wiadomo ile jest łoju
-    mainLoop();          // w pliku "watek_glowny.c"
+    clockValue = 0;
+    initArguments(argc, argv);
+    initMPI(&argc, &argv);
+    createMessageType();
+    changeState(STATE_INIT);
+    initBoats(tId, size);
+    initCostumes(tId, size);
+    generatePassengerWeight(tId);
 
-    finalizuj();
+    pthread_create(&commThread, NULL, communicationThreadLoop, 0);
+    mainThreadLoop();
+
+    cleanUp();
     return 0;
 }
 
+void initArguments(int argc, char **argv)
+{
+    if (argc < 3)
+    {
+        printf("ERROR: You must pass two arguments- number of boats and costumes\n");
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+    BOATS_COUNT = atoi(argv[1]);
+    COSTUMES_COUNT = atoi(argv[2]);
+}
+
+void initMPI(int *argc, char ***argv)
+{
+    int provided;
+    MPI_Init_thread(argc, argv, MPI_THREAD_MULTIPLE, &provided);
+
+    if (provided == MPI_THREAD_SINGLE)
+    {
+        printf("ERROR: The MPI library does not have full thread support\n");
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &tId);
+}
+
+void createMessageType()
+{
+    const int nItems = 6;
+    int blocklengths[6] = {1, 1, 1, 1, 1, 1};
+    MPI_Datatype types[6] = {MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT};
+
+    MPI_Aint offsets[6];
+    offsets[0] = offsetof(Message, senderId);
+    offsets[1] = offsetof(Message, timestamp);
+    offsets[2] = offsetof(Message, priority);
+    offsets[3] = offsetof(Message, type);
+    offsets[4] = offsetof(Message, boatId);
+    offsets[5] = offsetof(Message, senderWeight);
+
+    MPI_Type_create_struct(nItems, blocklengths, offsets, types, &MPI_Msg);
+    MPI_Type_commit(&MPI_Msg);
+}
+
+void initBoats(int tId, int size)
+{
+    srand(time(NULL));
+    if (tId == ROOT)
+        printf("*****Generating boats*****\n");
+
+    boats = (Boat *)malloc(sizeof(Boat) * BOATS_COUNT);
+    numberOfReceivedBoatPermissions = 0;
+
+    for (int i = 0; i < BOATS_COUNT; i++)
+    {
+        boats[i].queue = (int **)malloc(sizeof(int *) * size);
+        boats[i].isOnACruise = FALSE;
+        boats[i].capacity = -1;
+        for (int j = 0; j < size; j++)
+        {
+            boats[i].queue[j] = (int *)malloc(sizeof(int) * 3);
+            boats[i].queue[j][0] = -1; //process id
+            boats[i].queue[j][1] = -1; //timestamp
+            boats[i].queue[j][2] = -1; //process weight (occupied capacity)
+        }
+        int randBoatCapacity = -1;
+        if (tId == ROOT)
+        {
+            randBoatCapacity = (rand() % (BOAT_CAPACITY_MAX - BOAT_CAPACITY_MIN) + BOAT_CAPACITY_MIN);
+            printf("Boat id: %d, capacity: %d \n", i, randBoatCapacity);
+        }
+        MPI_Bcast(&randBoatCapacity, 1, MPI_INT, ROOT, MPI_COMM_WORLD);
+        boats[i].capacity = randBoatCapacity;
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+}
+
+void initCostumes(int tId, int size)
+{
+    srand(time(NULL));
+    if (tId == ROOT)
+        printf("*****Generating costumes*****\n");
+
+    costumesPool = (CostumesPool *)malloc(sizeof(CostumesPool));
+    numberOfReceivedCostumePermissions = 0;
+
+    costumesPool->queue = (int **)malloc(sizeof(int *) * size);
+    for (int i = 0; i < size; i++)
+    {
+        costumesPool->queue[i] = (int *)malloc(sizeof(int) * 2);
+        costumesPool->queue[i][0] = -1; //process id
+        costumesPool->queue[i][1] = -1; //timestamp
+    }
+
+    int randNumberOfCostumes = -1;
+    if (tId == ROOT)
+    {
+        printf("Number of available costumes: %d \n", COSTUMES_COUNT);
+    }
+    costumesPool->availableCostumes = COSTUMES_COUNT;
+
+    MPI_Barrier(MPI_COMM_WORLD);
+}
+
+void generatePassengerWeight(int tId)
+{
+    srand(tId);
+    weight = (rand() % (PASSENGER_MAX_WEIGHT - PASSENGER_MIN_WEIGHT) + PASSENGER_MIN_WEIGHT);
+    printf("Generated weight for passenger %d: %d\n", tId, weight);
+
+    MPI_Barrier(MPI_COMM_WORLD);
+}
+
+void cleanUp()
+{
+    pthread_mutex_destroy(&mutexState);
+    pthread_mutex_destroy(&mutexCostumes);
+    pthread_mutex_destroy(&mutexBoats);
+    pthread_mutex_destroy(&mutexBoats);
+
+    pthread_cond_destroy(&condition_ACK_B);
+    pthread_cond_destroy(&condition_ACK_C);
+    pthread_cond_destroy(&condition_CRUISE);
+    pthread_cond_destroy(&condition_REL_B);
+    pthread_cond_destroy(&condition_REL_C);
+
+    pthread_join(commThread, NULL);
+
+    MPI_Type_free(&MPI_Msg);
+    MPI_Finalize();
+
+    free(boats);
+    free(costumesPool);
+}
