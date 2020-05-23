@@ -139,12 +139,12 @@ extern int size;
 extern int state;
 
 /**
- * Current state of a process
+ * Number of ACK_C messages received for a specific request
 **/
 extern int numberOfReceivedCostumePermissions;
 
 /**
- * Current state of a process
+ * Number of ACK_B messages received for a specific request
 **/
 extern int numberOfReceivedBoatPermissions;
 
@@ -194,7 +194,7 @@ extern pthread_cond_t condition_REL_C;
 extern pthread_cond_t condition_REL_B;
 
 /**
- * Condition that is signaled when some boat goes to cruise
+ * Condition that is signaled when some boat goes to a cruise
 **/
 extern pthread_cond_t condition_CRUISE;
 
