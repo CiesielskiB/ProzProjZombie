@@ -1,8 +1,11 @@
 #include "main.h"
 #include "communicationThread.h"
 #include "mainThread.h"
+#include "functions.h"
 
 MPI_Datatype MPI_Msg;
+
+int clockValue;
 
 Boat *boats;
 CostumesPool *costumesPool;
@@ -15,14 +18,32 @@ int tId;
 int size;
 int state;
 
+int numberOfReceivedCostumePermissions;
+int numberOfReceivedBoatPermissions;
+
 pthread_t commThread;
+
 pthread_mutex_t mutexState = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutexBoats = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutexCostumes = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutexClock = PTHREAD_MUTEX_INITIALIZER;
+
+pthread_cond_t condition_ACK_C = PTHREAD_COND_INITIALIZER;
+pthread_cond_t condition_ACK_B = PTHREAD_COND_INITIALIZER;
+pthread_cond_t condition_REL_C = PTHREAD_COND_INITIALIZER;
+pthread_cond_t condition_REL_B = PTHREAD_COND_INITIALIZER;
+pthread_cond_t condition_CRUISE = PTHREAD_COND_INITIALIZER;
 
 int main(int argc, char **argv)
 {
+    clockValue = 0;
+    initArguments(argc, argv);
     initMPI(&argc, &argv);
+    createMessageType();
+    changeState(STATE_INIT);
+    initBoats(tId, size);
+    initCostumes(tId, size);
+    generatePassengerWeight(tId);
 
     pthread_create(&commThread, NULL, communicationThreadLoop, 0);
     mainThreadLoop();
@@ -31,11 +52,19 @@ int main(int argc, char **argv)
     return 0;
 }
 
+void initArguments(int argc, char **argv)
+{
+    if (argc < 3)
+    {
+        printf("ERROR: You must pass two arguments- number of boats and costumes\n");
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+    BOATS_COUNT = atoi(argv[1]);
+    COSTUMES_COUNT = atoi(argv[2]);
+}
+
 void initMPI(int *argc, char ***argv)
 {
-    BOATS_COUNT = 5;    //TODO
-    COSTUMES_COUNT = 3; //TODO
-
     int provided;
     MPI_Init_thread(argc, argv, MPI_THREAD_MULTIPLE, &provided);
 
@@ -47,11 +76,6 @@ void initMPI(int *argc, char ***argv)
 
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &tId);
-
-    createMessageType();
-    initBoats(tId, size);
-    initCostumes(tId, size);
-    generatePassengerWeight(tId);
 }
 
 void createMessageType()
@@ -79,6 +103,7 @@ void initBoats(int tId, int size)
         printf("*****Generating boats*****\n");
 
     boats = (Boat *)malloc(sizeof(Boat) * BOATS_COUNT);
+    numberOfReceivedBoatPermissions = 0;
 
     for (int i = 0; i < BOATS_COUNT; i++)
     {
@@ -111,6 +136,7 @@ void initCostumes(int tId, int size)
         printf("*****Generating costumes*****\n");
 
     costumesPool = (CostumesPool *)malloc(sizeof(CostumesPool));
+    numberOfReceivedCostumePermissions = 0;
 
     costumesPool->queue = (int **)malloc(sizeof(int *) * size);
     for (int i = 0; i < size; i++)
@@ -123,12 +149,9 @@ void initCostumes(int tId, int size)
     int randNumberOfCostumes = -1;
     if (tId == ROOT)
     {
-        int maxCostumes = MAX_NUMBER_OF_COSTUMES > size ? size / 2 : MAX_NUMBER_OF_COSTUMES;
-        randNumberOfCostumes = (rand() % (maxCostumes - MIN_NUMBER_OF_COSTUMES) + MIN_NUMBER_OF_COSTUMES);
-        printf("Number of available costumes: %d \n", randNumberOfCostumes);
+        printf("Number of available costumes: %d \n", COSTUMES_COUNT);
     }
-    MPI_Bcast(&randNumberOfCostumes, 1, MPI_INT, ROOT, MPI_COMM_WORLD);
-    costumesPool->availableCostumes = randNumberOfCostumes;
+    costumesPool->availableCostumes = COSTUMES_COUNT;
 
     MPI_Barrier(MPI_COMM_WORLD);
 }
@@ -142,36 +165,19 @@ void generatePassengerWeight(int tId)
     MPI_Barrier(MPI_COMM_WORLD);
 }
 
-void changeState(int newState)
-{
-    pthread_mutex_lock(&mutexState);
-    if (state == STATE_FINISH)
-    {
-        pthread_mutex_unlock(&mutexState);
-        return;
-    }
-    state = newState;
-    pthread_mutex_unlock(&mutexState);
-}
-
-void sendMessage(Message *message, int destination, int tag)
-{
-    int shouldMemoryBeFreed = FALSE;
-    if (message == 0)
-    {
-        message = malloc(sizeof(Message));
-        shouldMemoryBeFreed = TRUE;
-    }
-
-    MPI_Send(message, 1, MPI_Msg, destination, tag, MPI_COMM_WORLD);
-
-    if (shouldMemoryBeFreed)
-        free(message);
-}
-
 void cleanUp()
 {
     pthread_mutex_destroy(&mutexState);
+    pthread_mutex_destroy(&mutexCostumes);
+    pthread_mutex_destroy(&mutexBoats);
+    pthread_mutex_destroy(&mutexBoats);
+
+    pthread_cond_destroy(&condition_ACK_B);
+    pthread_cond_destroy(&condition_ACK_C);
+    pthread_cond_destroy(&condition_CRUISE);
+    pthread_cond_destroy(&condition_REL_B);
+    pthread_cond_destroy(&condition_REL_C);
+
     pthread_join(commThread, NULL);
 
     MPI_Type_free(&MPI_Msg);

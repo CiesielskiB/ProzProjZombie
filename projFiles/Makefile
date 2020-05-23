@@ -12,4 +12,4 @@ clean:
 	rm main 
 
 run: main
-	mpirun -np 8 ./main
+	mpirun -np 8 ./main 3 4

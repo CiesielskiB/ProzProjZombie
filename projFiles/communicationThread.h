@@ -1,13 +1,14 @@
 /**
- * Wątek komunikacyjny: odbieranie i reagowanie na wiadomości
+ * Communication thread: receving and reacting to messages
 **/
 void *communicationThreadLoop(void *ptr);
 
-void addProcessToACostumesQueue(int processId, int priority);
-int processIsNotAlreadyInACostumesQueue(int processId);
+/**
+ * Sends back an ACK_C message
+**/
+void respondWithACK_C(int destination);
 
-void addProcessToABoatsQueue(int processId, int boatId, int priority, int weight);
-int processIsNotAlreadyInABoatsQueue(int processId, int boatId);
-
-void removeProcessFromACostumesQueue(int processId);
-void removeProcessFromABoatsQueue(int processId, int boatId);
+/**
+ * Sends back an ACK_B message
+**/
+void respondWithACK_B(int destination);
